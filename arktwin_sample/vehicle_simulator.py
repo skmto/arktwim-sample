@@ -36,17 +36,18 @@ class VehicleSimulator:
         self.neighbors: Dict[str, dict] = {}
         self.simulation_time = 0.0
         self.running = False
+        self.registered_agent_ids: Dict[str, str] = {}  # prefix -> actual_id mapping
         
         # 車両を初期化
         self._initialize_vehicles()
         
     def _initialize_vehicles(self):
-        """車両の初期配置"""
-        # 3台の車両を道路上に配置
+        """車両の初期配置（テスト用：近くに停車）"""
+        # 3台の車両を近い場所に停車状態で配置
         self.vehicles = {
-            "vehicle-001": Vehicle("vehicle-001", 0.0, 0.0, 0.5, 10.0, 0.0),
-            "vehicle-002": Vehicle("vehicle-002", -20.0, 0.0, 0.5, 12.0, 0.0),
-            "vehicle-003": Vehicle("vehicle-003", -40.0, 0.0, 0.5, 8.0, 0.0),
+            "vehicle-001": Vehicle("vehicle-001", 0.0, 0.0, 0.5, 0.0, 0.0),     # 原点
+            "vehicle-002": Vehicle("vehicle-002", 5.0, 0.0, 0.5, 0.0, 0.0),     # 5m東
+            "vehicle-003": Vehicle("vehicle-003", 0.0, 5.0, 0.5, 0.0, 0.0),     # 5m北
         }
         
     def setup_edge_connection(self):
@@ -67,7 +68,19 @@ class VehicleSimulator:
                 timeout=5
             )
             response.raise_for_status()
-            print(f"車両エージェント登録完了: {len(agents)}台")
+            
+            # レスポンスから実際のエージェントIDを取得
+            response_data = response.json()
+            for i, agent_data in enumerate(response_data):
+                agent_id = agent_data["agentId"]
+                # リクエストの順序に基づいて対応関係を保存
+                vehicle_ids = list(self.vehicles.keys())
+                if i < len(vehicle_ids):
+                    vehicle_id = vehicle_ids[i]
+                    self.registered_agent_ids[vehicle_id] = agent_id
+                    print(f"車両 {vehicle_id} -> エージェントID: {agent_id}")
+            
+            print(f"車両エージェント登録完了: {len(self.registered_agent_ids)}台")
             
         except requests.RequestException as e:
             print(f"ArkTwin Edge接続エラー: {e}")
@@ -76,17 +89,11 @@ class VehicleSimulator:
         return True
         
     def update_vehicles(self, dt: float):
-        """車両位置更新"""
+        """車両位置更新（テスト用：停止状態）"""
+        # テスト用：車両は移動せず停止状態を維持
         for vehicle in self.vehicles.values():
-            # 直線移動
-            vehicle.x += vehicle.speed * dt * math.cos(vehicle.direction)
-            vehicle.y += vehicle.speed * dt * math.sin(vehicle.direction)
-            
-            # 道路端で折り返し
-            if vehicle.x > 100:
-                vehicle.direction = math.pi
-            elif vehicle.x < -100:
-                vehicle.direction = 0
+            # 位置は変更しない（停止状態）
+            pass
                 
     def send_transforms(self):
         """ArkTwinに変換行列を送信"""
@@ -97,7 +104,9 @@ class VehicleSimulator:
         
         transforms = {}
         for vehicle in self.vehicles.values():
-            transforms[vehicle.id] = {
+            # 実際に登録されたエージェントIDを使用
+            actual_agent_id = self.registered_agent_ids.get(vehicle.id, vehicle.id)
+            transforms[actual_agent_id] = {
                 "transform": {
                     "parentAgentId": None,
                     "globalScale": {
@@ -176,15 +185,21 @@ class VehicleSimulator:
             
     def print_status(self):
         """シミュレーション状態表示"""
-        print(f"\n=== 車両シミュレーター (時刻: {self.simulation_time:.1f}s) ===")
+        print(f"\n=== 車両シミュレーター [停止テスト] (時刻: {self.simulation_time:.1f}s) ===")
         for vehicle in self.vehicles.values():
-            print(f"{vehicle.id}: 位置({vehicle.x:.1f}, {vehicle.y:.1f}) 速度:{vehicle.speed:.1f}m/s")
+            print(f"{vehicle.id}: 位置({vehicle.x:.1f}, {vehicle.y:.1f}) 速度:{vehicle.speed:.1f}m/s [停止中]")
             
         if self.neighbors:
             other_agents = {k: v for k, v in self.neighbors.items() 
                           if not k.startswith("vehicle")}
             if other_agents:
                 print(f"他のエージェント: {len(other_agents)}個")
+                for agent_id in other_agents.keys():
+                    print(f"  - {agent_id}")
+            else:
+                print("他のエージェント: なし")
+        else:
+            print("近隣情報: なし")
                 
     def run(self):
         """シミュレーション実行"""
@@ -195,7 +210,7 @@ class VehicleSimulator:
         self.running = True
         dt = 0.1  # 100ms
         
-        print("車両シミュレーション開始...")
+        print("車両シミュレーション開始（テスト用：停止状態）...")
         print("Ctrl+Cで停止")
         
         try:

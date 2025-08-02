@@ -39,18 +39,19 @@ class PedestrianSimulator:
         self.neighbors: Dict[str, dict] = {}
         self.simulation_time = 0.0
         self.running = False
+        self.registered_agent_ids: Dict[str, str] = {}  # prefix -> actual_id mapping
         
         # 歩行者を初期化
         self._initialize_pedestrians()
         
     def _initialize_pedestrians(self):
-        """歩行者の初期配置"""
-        # 4人の歩行者を歩道上に配置
+        """歩行者の初期配置（テスト用：近くに停止）"""
+        # 4人の歩行者を車両の近くに停止状態で配置
         self.pedestrians = {
-            "pedestrian-001": Pedestrian("pedestrian-001", 10.0, 5.0, 0.0, 1.5, 0.0, 20.0, 10.0),
-            "pedestrian-002": Pedestrian("pedestrian-002", 0.0, -5.0, 0.0, 1.2, math.pi/2, 5.0, 15.0),
-            "pedestrian-003": Pedestrian("pedestrian-003", -15.0, 8.0, 0.0, 1.8, -math.pi/4, -5.0, -2.0),
-            "pedestrian-004": Pedestrian("pedestrian-004", 25.0, -3.0, 0.0, 1.0, math.pi, 15.0, 12.0),
+            "pedestrian-001": Pedestrian("pedestrian-001", 0.0, 0.0, 0.0, 0.0, 0.0, 3.0, 3.0),      # 車両の近く
+            "pedestrian-002": Pedestrian("pedestrian-002", -2.0, 2.0, 0.0, 0.0, 0.0, -2.0, 2.0),    # 車両の近く  
+            "pedestrian-003": Pedestrian("pedestrian-003", 2.0, -2.0, 0.0, 0.0, 0.0, 2.0, -2.0),    # 車両の近く
+            "pedestrian-004": Pedestrian("pedestrian-004", 7.0, 2.0, 0.0, 0.0, 0.0, 7.0, 2.0),      # 車両の近く
         }
         
     def setup_edge_connection(self):
@@ -71,7 +72,19 @@ class PedestrianSimulator:
                 timeout=5
             )
             response.raise_for_status()
-            print(f"歩行者エージェント登録完了: {len(agents)}人")
+            
+            # レスポンスから実際のエージェントIDを取得
+            response_data = response.json()
+            for i, agent_data in enumerate(response_data):
+                agent_id = agent_data["agentId"]
+                # リクエストの順序に基づいて対応関係を保存
+                pedestrian_ids = list(self.pedestrians.keys())
+                if i < len(pedestrian_ids):
+                    pedestrian_id = pedestrian_ids[i]
+                    self.registered_agent_ids[pedestrian_id] = agent_id
+                    print(f"歩行者 {pedestrian_id} -> エージェントID: {agent_id}")
+            
+            print(f"歩行者エージェント登録完了: {len(self.registered_agent_ids)}人")
             
         except requests.RequestException as e:
             print(f"ArkTwin Edge接続エラー: {e}")
@@ -80,45 +93,11 @@ class PedestrianSimulator:
         return True
         
     def update_pedestrians(self, dt: float):
-        """歩行者位置更新"""
+        """歩行者位置更新（テスト用：停止状態）"""
+        # テスト用：歩行者は移動せず停止状態を維持
         for pedestrian in self.pedestrians.values():
-            # 目標地点への移動
-            dx = pedestrian.target_x - pedestrian.x
-            dy = pedestrian.target_y - pedestrian.y
-            distance_to_target = math.sqrt(dx*dx + dy*dy)
-            
-            # 目標地点に近づいたら新しい目標を設定
-            if distance_to_target < 2.0:
-                pedestrian.target_x = random.uniform(-30, 30)
-                pedestrian.target_y = random.uniform(-15, 15)
-                dx = pedestrian.target_x - pedestrian.x
-                dy = pedestrian.target_y - pedestrian.y
-                distance_to_target = math.sqrt(dx*dx + dy*dy)
-            
-            # 目標方向を計算
-            if distance_to_target > 0:
-                target_direction = math.atan2(dy, dx)
-                
-                # 方向を徐々に変更（急激な方向転換を避ける）
-                angle_diff = target_direction - pedestrian.direction
-                while angle_diff > math.pi:
-                    angle_diff -= 2 * math.pi
-                while angle_diff < -math.pi:
-                    angle_diff += 2 * math.pi
-                    
-                max_turn_rate = math.pi  # 180度/秒
-                if abs(angle_diff) > max_turn_rate * dt:
-                    angle_diff = max_turn_rate * dt * (1 if angle_diff > 0 else -1)
-                    
-                pedestrian.direction += angle_diff
-            
-            # 位置更新
-            pedestrian.x += pedestrian.speed * dt * math.cos(pedestrian.direction)
-            pedestrian.y += pedestrian.speed * dt * math.sin(pedestrian.direction)
-            
-            # 速度にランダムな変動を追加
-            if random.random() < 0.01:  # 1%の確率で速度変更
-                pedestrian.speed = max(0.5, min(2.5, pedestrian.speed + random.uniform(-0.3, 0.3)))
+            # 位置は変更しない（停止状態）
+            pass
                 
     def send_transforms(self):
         """ArkTwinに変換行列を送信"""
@@ -129,7 +108,9 @@ class PedestrianSimulator:
         
         transforms = {}
         for pedestrian in self.pedestrians.values():
-            transforms[pedestrian.id] = {
+            # 実際に登録されたエージェントIDを使用
+            actual_agent_id = self.registered_agent_ids.get(pedestrian.id, pedestrian.id)
+            transforms[actual_agent_id] = {
                 "transform": {
                     "parentAgentId": None,
                     "globalScale": {
@@ -208,16 +189,23 @@ class PedestrianSimulator:
             
     def print_status(self):
         """シミュレーション状態表示"""
-        print(f"\n=== 歩行者シミュレーター (時刻: {self.simulation_time:.1f}s) ===")
+        print(f"\n=== 歩行者シミュレーター [停止テスト] (時刻: {self.simulation_time:.1f}s) ===")
         for pedestrian in self.pedestrians.values():
-            print(f"{pedestrian.id}: 位置({pedestrian.x:.1f}, {pedestrian.y:.1f}) "
-                 f"速度:{pedestrian.speed:.1f}m/s 目標:({pedestrian.target_x:.1f}, {pedestrian.target_y:.1f})")
+            actual_id = self.registered_agent_ids.get(pedestrian.id, pedestrian.id)
+            print(f"{pedestrian.id} ({actual_id}): 位置({pedestrian.x:.1f}, {pedestrian.y:.1f}) "
+                 f"速度:{pedestrian.speed:.1f}m/s [停止中]")
             
         if self.neighbors:
             other_agents = {k: v for k, v in self.neighbors.items() 
                           if not k.startswith("pedestrian")}
             if other_agents:
                 print(f"他のエージェント: {len(other_agents)}個")
+                for agent_id in other_agents.keys():
+                    print(f"  - {agent_id}")
+            else:
+                print("他のエージェント: なし")
+        else:
+            print("近隣情報: なし")
                 
     def run(self):
         """シミュレーション実行"""
@@ -228,7 +216,7 @@ class PedestrianSimulator:
         self.running = True
         dt = 0.1  # 100ms
         
-        print("歩行者シミュレーション開始...")
+        print("歩行者シミュレーション開始（テスト用：停止状態）...")
         print("Ctrl+Cで停止")
         
         try:
