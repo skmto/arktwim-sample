@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
 """
-Test script to verify agent registration and ID tracking
+ArkTwin エージェント登録テストスクリプト
+
+車両と歩行者のエージェント登録処理とIDトラッキングを検証する。
+ArkTwin Edgeが正しくエージェントIDを割り当てているかを確認する。
 """
 
 import requests
 import json
 
 def test_vehicle_registration():
-    """Test vehicle agent registration"""
+    """車両エージェント登録のテスト
+    
+    車両シミュレーター用のArkTwin Edgeに車両エージェントを登録し、
+    割り当てられたエージェントIDとプレフィックスのマッピングを確認する。
+    
+    Returns:
+        dict: プレフィックスから実際のエージェントIDへのマッピング
+    """
+    # 車両用ArkTwin EdgeのURL（ポート 2237）
     edge_url = "http://127.0.0.1:2237"
     
-    # Test agent registration
+    # テスト用の車両エージェント登録データを作成
     agents = [
         {"agentIdPrefix": "vehicle-001", "kind": "vehicle", "status": {}, "assets": {}},
         {"agentIdPrefix": "vehicle-002", "kind": "vehicle", "status": {}, "assets": {}},
@@ -48,10 +59,19 @@ def test_vehicle_registration():
         return {}
 
 def test_pedestrian_registration():
-    """Test pedestrian agent registration"""
+    """歩行者エージェント登録のテスト
+    
+    歩行者シミュレーター用のArkTwin Edgeに歩行者エージェントを登録し、
+    割り当てられたエージェントIDとプレフィックスのマッピングを確認する。
+    
+    Returns:
+        dict: プレフィックスから実際のエージェントIDへのマッピング
+    """
+    # 歩行者用ArkTwin EdgeのURL（ポート 2238）
     edge_url = "http://127.0.0.1:2238"
     
-    # Test agent registration
+    # テスト用の歩行者エージェント登録データを作成
+    # 各歩行者の登録情報（プレフィックス、種類、状態、アセット）
     agents = [
         {"agentIdPrefix": "pedestrian-001", "kind": "pedestrian", "status": {}, "assets": {}},
         {"agentIdPrefix": "pedestrian-002", "kind": "pedestrian", "status": {}, "assets": {}},
@@ -74,13 +94,14 @@ def test_pedestrian_registration():
         # Extract agent ID mappings
         registered_agent_ids = {}
         if "agents" in response_data:
+            # レスポンスから各エージェントの情報を取得
             for agent_data in response_data["agents"]:
                 agent_id = agent_data["agentId"]
-                # Find matching prefix
+                # プレフィックスと実際のIDのマッチングを検索
                 for prefix in ["pedestrian-001", "pedestrian-002", "pedestrian-003", "pedestrian-004"]:
                     if agent_id.startswith(prefix):
                         registered_agent_ids[prefix] = agent_id
-                        print(f"Pedestrian {prefix} -> Agent ID: {agent_id}")
+                        print(f"歩行者 {prefix} -> エージェントID: {agent_id}")
                         break
         
         return registered_agent_ids

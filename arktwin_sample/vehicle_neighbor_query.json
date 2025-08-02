@@ -1,8 +1,0 @@
-{
-  "timestamp": {
-            "seconds": 123456,
-            "nanos": 0
-        },
-  "neighborsNumber": 50,
-  "changeDetection": false
-}
