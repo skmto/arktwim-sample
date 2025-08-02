@@ -1,0 +1,28 @@
+# Binary files
+*.jar
+*.zip
+
+# Build directories
+arktwin-0.6.0/
+arktwin/
+
+# Documentation files
+docs.yaml
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

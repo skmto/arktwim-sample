@@ -1,0 +1,2 @@
+# Python dependencies for ArkTwin Sample
+requests>=2.25.0
