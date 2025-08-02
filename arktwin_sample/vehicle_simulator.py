@@ -116,20 +116,121 @@ class VehicleSimulator:
         return True
         
     def update_vehicles(self, dt: float):
-        """車両位置更新（テスト用：停止状態）
+        """車両位置更新（交差点シミュレーション）
         
-        本来はここで車両の移動ロジックを実装するが、
-        近隣検出のテスト用のため、停止状態を維持する。
+        時間経過に応じて車両を交差点で移動させる。
+        原点(0,0)を交差点の中心として、リアルな車両の動きを実装。
         
         Args:
             dt (float): 前回更新からの経過時間（秒）
         """
-        # テスト用：車両は移動せず停止状態を維持
-        # 実際のシミュレーションでは、ここで道路上の直線移動や
-        # 交差点での方向転換などの車両ロジックを実装する
+        import math
+        
+        # 各車両の移動パターン定義
+        vehicle_patterns = {
+            "vehicle-001": {
+                "type": "straight_ew",
+                "start": (-25, -1.5),
+                "end": (25, -1.5),
+                "speed": 8.0,  # 8 m/s
+                "cycle_time": 12.0  # 12秒で一方向完了
+            },
+            "vehicle-002": {
+                "type": "straight_ns", 
+                "start": (1.5, -25),
+                "end": (1.5, 25),
+                "speed": 7.0,
+                "cycle_time": 14.0
+            },
+            "vehicle-003": {
+                "type": "right_turn",
+                "waypoints": [(1.5, -25), (1.5, -3), (3, -1.5), (25, -1.5)],
+                "speed": 5.0,
+                "cycle_time": 18.0
+            }
+        }
+        
         for vehicle in self.vehicles.values():
-            # 位置は変更しない（停止状態）
-            pass
+            if vehicle.id not in vehicle_patterns:
+                continue
+                
+            pattern = vehicle_patterns[vehicle.id]
+            
+            # 周期的な移動（往復）
+            elapsed = self.simulation_time
+            cycle_progress = (elapsed % (pattern["cycle_time"] * 2)) / pattern["cycle_time"]
+            
+            if pattern["type"] in ["straight_ew", "straight_ns"]:
+                # 直進車両
+                if cycle_progress <= 1.0:
+                    # 順方向
+                    t = cycle_progress
+                    x = pattern["start"][0] + t * (pattern["end"][0] - pattern["start"][0])
+                    y = pattern["start"][1] + t * (pattern["end"][1] - pattern["start"][1])
+                    direction = math.atan2(pattern["end"][1] - pattern["start"][1],
+                                         pattern["end"][0] - pattern["start"][0])
+                    speed_x = pattern["speed"] * math.cos(direction)
+                    speed_y = pattern["speed"] * math.sin(direction)
+                else:
+                    # 逆方向
+                    t = cycle_progress - 1.0
+                    x = pattern["end"][0] + t * (pattern["start"][0] - pattern["end"][0])
+                    y = pattern["end"][1] + t * (pattern["start"][1] - pattern["end"][1])
+                    direction = math.atan2(pattern["start"][1] - pattern["end"][1],
+                                         pattern["start"][0] - pattern["end"][0])
+                    speed_x = pattern["speed"] * math.cos(direction)
+                    speed_y = pattern["speed"] * math.sin(direction)
+                    
+            elif pattern["type"] == "right_turn":
+                # 右折車両（ウェイポイント使用）
+                waypoints = pattern["waypoints"]
+                
+                # 総距離計算
+                total_distance = 0
+                for i in range(len(waypoints) - 1):
+                    dx = waypoints[i+1][0] - waypoints[i][0]
+                    dy = waypoints[i+1][1] - waypoints[i][1]
+                    total_distance += math.sqrt(dx*dx + dy*dy)
+                
+                # 現在位置計算
+                if cycle_progress <= 1.0:
+                    distance_traveled = cycle_progress * total_distance
+                else:
+                    distance_traveled = total_distance - (cycle_progress - 1.0) * total_distance
+                
+                # ウェイポイント間での位置補間
+                current_distance = 0
+                for i in range(len(waypoints) - 1):
+                    dx = waypoints[i+1][0] - waypoints[i][0]
+                    dy = waypoints[i+1][1] - waypoints[i][1]
+                    segment_distance = math.sqrt(dx*dx + dy*dy)
+                    
+                    if current_distance + segment_distance >= distance_traveled:
+                        # このセグメント内
+                        t = (distance_traveled - current_distance) / segment_distance
+                        x = waypoints[i][0] + t * dx
+                        y = waypoints[i][1] + t * dy
+                        direction = math.atan2(dy, dx)
+                        speed_x = pattern["speed"] * math.cos(direction)
+                        speed_y = pattern["speed"] * math.sin(direction)
+                        break
+                    current_distance += segment_distance
+                else:
+                    # 最終地点
+                    x, y = waypoints[-1]
+                    direction = math.atan2(waypoints[-1][1] - waypoints[-2][1],
+                                         waypoints[-1][0] - waypoints[-2][0])
+                    speed_x = 0
+                    speed_y = 0
+            
+            # 車両の位置と向きを更新
+            vehicle.x = x
+            vehicle.y = y
+            vehicle.z = 0.5  # 車両の高さ
+            vehicle.rotation_z = math.degrees(direction)
+            vehicle.speed_x = speed_x
+            vehicle.speed_y = speed_y
+            vehicle.speed_z = 0.0
                 
     def send_transforms(self):
         """ArkTwinに変換行列を送信

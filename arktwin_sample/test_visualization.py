@@ -62,21 +62,73 @@ class MockArkTwinHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(500, str(e))
     
     def generate_mock_data(self, port):
-        """モックデータ生成"""
+        """交差点シミュレーション用モックデータ生成
+        
+        座標系:
+        - 原点(0,0)は交差点の中心
+        - X軸: 東方向が正
+        - Y軸: 北方向が正
+        - 道路幅: 6メートル (片側3メートル)
+        """
         current_time = time.time()
         elapsed = current_time - self.start_time
         
         neighbors = {}
         
         if port == 2237:  # 車両用Edge - 歩行者データを返す
-            # 4人の歩行者のモックデータ
-            for i in range(1, 5):
-                agent_id = f"pedestrian-00{i}-mock-{int(current_time)}"
-                # 時間経過で移動するアニメーション
-                angle = (elapsed * 0.5 + i * math.pi / 2) % (2 * math.pi)
-                radius = 8 + i * 2
-                x = radius * math.cos(angle)
-                y = radius * math.sin(angle)
+            # 4人の歩行者のモックデータ - 交差点を横断・歩道を歩行
+            pedestrians = [
+                {
+                    "id": "pedestrian-001",
+                    "type": "crosswalk_ew",  # 東西方向横断歩道
+                    "start": (-15, -1.5),
+                    "end": (15, -1.5),
+                    "speed": 1.2  # 1.2 m/s
+                },
+                {
+                    "id": "pedestrian-002", 
+                    "type": "crosswalk_ns",  # 南北方向横断歩道
+                    "start": (1.5, -15),
+                    "end": (1.5, 15),
+                    "speed": 1.0
+                },
+                {
+                    "id": "pedestrian-003",
+                    "type": "sidewalk_north",  # 北側歩道
+                    "start": (-20, 5),
+                    "end": (20, 5),
+                    "speed": 1.4
+                },
+                {
+                    "id": "pedestrian-004",
+                    "type": "crosswalk_ew_return",  # 東西横断（戻り）
+                    "start": (15, 1.5),
+                    "end": (-15, 1.5),
+                    "speed": 1.1
+                }
+            ]
+            
+            for i, ped in enumerate(pedestrians):
+                # 周期的な移動パターン
+                cycle_time = 30  # 30秒で往復
+                progress = (elapsed * ped["speed"] / 30) % 2  # 0-2の範囲で往復
+                
+                if progress <= 1:
+                    # 順方向
+                    t = progress
+                    x = ped["start"][0] + t * (ped["end"][0] - ped["start"][0])
+                    y = ped["start"][1] + t * (ped["end"][1] - ped["start"][1])
+                    direction = math.atan2(ped["end"][1] - ped["start"][1], 
+                                         ped["end"][0] - ped["start"][0])
+                else:
+                    # 逆方向
+                    t = progress - 1
+                    x = ped["end"][0] + t * (ped["start"][0] - ped["end"][0])
+                    y = ped["end"][1] + t * (ped["start"][1] - ped["end"][1])
+                    direction = math.atan2(ped["start"][1] - ped["end"][1], 
+                                         ped["start"][0] - ped["end"][0])
+                
+                agent_id = f"{ped['id']}-mock-{int(current_time)}"
                 
                 neighbors[agent_id] = {
                     "transform": {
@@ -89,31 +141,117 @@ class MockArkTwinHandler(http.server.BaseHTTPRequestHandler):
                             "EulerAngles": {
                                 "x": 0.0,
                                 "y": 0.0,
-                                "z": math.degrees(angle)
+                                "z": math.degrees(direction)
                             }
                         },
                         "localTranslationSpeed": {
-                            "x": -radius * 0.5 * math.sin(angle),
-                            "y": radius * 0.5 * math.cos(angle),
+                            "x": ped["speed"] * math.cos(direction),
+                            "y": ped["speed"] * math.sin(direction),
                             "z": 0.0
                         }
                     },
                     "kind": "pedestrian",
-                    "status": {"state": "walking"},
+                    "status": {"state": "walking", "location": ped["type"]},
                     "assets": {},
-                    "nearestDistance": radius,
+                    "nearestDistance": math.sqrt(x*x + y*y),
                     "change": "Updated"
                 }
         
         elif port == 2238:  # 歩行者用Edge - 車両データを返す
-            # 3台の車両のモックデータ
-            for i in range(1, 4):
-                agent_id = f"vehicle-00{i}-mock-{int(current_time)}"
-                # 直線移動のアニメーション
-                direction = (i - 2) * math.pi / 6  # -30°, 0°, 30°
-                distance = (elapsed * 5) % 40 - 20  # -20m から 20m を往復
-                x = distance * math.cos(direction)
-                y = distance * math.sin(direction)
+            # 4台の車両のモックデータ - 交差点を通行
+            vehicles = [
+                {
+                    "id": "vehicle-001",
+                    "type": "straight_ew",  # 東西直進
+                    "start": (-25, -1.5),
+                    "end": (25, -1.5),
+                    "speed": 8.0  # 8 m/s (約29km/h)
+                },
+                {
+                    "id": "vehicle-002",
+                    "type": "straight_ns",  # 南北直進
+                    "start": (1.5, -25),
+                    "end": (1.5, 25),
+                    "speed": 7.0
+                },
+                {
+                    "id": "vehicle-003",
+                    "type": "right_turn",  # 右折（南→東）
+                    "waypoints": [(1.5, -25), (1.5, -3), (3, -1.5), (25, -1.5)],
+                    "speed": 5.0  # 右折は速度を落とす
+                },
+                {
+                    "id": "vehicle-004",
+                    "type": "left_turn",  # 左折（南→西）
+                    "waypoints": [(-1.5, -25), (-1.5, -3), (-3, 1.5), (-25, 1.5)],
+                    "speed": 4.5
+                }
+            ]
+            
+            for i, veh in enumerate(vehicles):
+                agent_id = f"{veh['id']}-mock-{int(current_time)}"
+                
+                if veh["type"] in ["straight_ew", "straight_ns"]:
+                    # 直進車両
+                    cycle_time = 60  # 60秒で往復
+                    progress = (elapsed * veh["speed"] / 50) % 2
+                    
+                    if progress <= 1:
+                        t = progress
+                        x = veh["start"][0] + t * (veh["end"][0] - veh["start"][0])
+                        y = veh["start"][1] + t * (veh["end"][1] - veh["start"][1])
+                        direction = math.atan2(veh["end"][1] - veh["start"][1], 
+                                             veh["end"][0] - veh["start"][0])
+                    else:
+                        t = progress - 1
+                        x = veh["end"][0] + t * (veh["start"][0] - veh["end"][0])
+                        y = veh["end"][1] + t * (veh["start"][1] - veh["end"][1])
+                        direction = math.atan2(veh["start"][1] - veh["end"][1], 
+                                             veh["start"][0] - veh["end"][0])
+                
+                else:
+                    # 右折・左折車両（複数のウェイポイント）
+                    waypoints = veh["waypoints"]
+                    total_distance = 0
+                    
+                    # 総距離計算
+                    for j in range(len(waypoints) - 1):
+                        dx = waypoints[j+1][0] - waypoints[j][0]
+                        dy = waypoints[j+1][1] - waypoints[j][1]
+                        total_distance += math.sqrt(dx*dx + dy*dy)
+                    
+                    # 現在位置計算
+                    cycle_time = total_distance / veh["speed"]
+                    progress = (elapsed % (cycle_time * 2))
+                    
+                    if progress <= cycle_time:
+                        # 順方向
+                        distance_traveled = progress * veh["speed"]
+                    else:
+                        # 逆方向
+                        distance_traveled = total_distance - (progress - cycle_time) * veh["speed"]
+                    
+                    # ウェイポイント間での位置補間
+                    current_distance = 0
+                    for j in range(len(waypoints) - 1):
+                        dx = waypoints[j+1][0] - waypoints[j][0]
+                        dy = waypoints[j+1][1] - waypoints[j][1]
+                        segment_distance = math.sqrt(dx*dx + dy*dy)
+                        
+                        if current_distance + segment_distance >= distance_traveled:
+                            # このセグメント内
+                            t = (distance_traveled - current_distance) / segment_distance
+                            x = waypoints[j][0] + t * dx
+                            y = waypoints[j][1] + t * dy
+                            direction = math.atan2(dy, dx)
+                            break
+                        
+                        current_distance += segment_distance
+                    else:
+                        # 最終地点
+                        x, y = waypoints[-1]
+                        direction = math.atan2(waypoints[-1][1] - waypoints[-2][1],
+                                             waypoints[-1][0] - waypoints[-2][0])
                 
                 neighbors[agent_id] = {
                     "transform": {
@@ -130,15 +268,15 @@ class MockArkTwinHandler(http.server.BaseHTTPRequestHandler):
                             }
                         },
                         "localTranslationSpeed": {
-                            "x": 5 * math.cos(direction) * (1 if (elapsed * 5) % 80 < 40 else -1),
-                            "y": 5 * math.sin(direction) * (1 if (elapsed * 5) % 80 < 40 else -1),
+                            "x": veh["speed"] * math.cos(direction),
+                            "y": veh["speed"] * math.sin(direction),
                             "z": 0.0
                         }
                     },
                     "kind": "vehicle",
-                    "status": {"state": "driving"},
+                    "status": {"state": "driving", "maneuver": veh["type"]},
                     "assets": {},
-                    "nearestDistance": abs(distance),
+                    "nearestDistance": math.sqrt(x*x + y*y),
                     "change": "Updated"
                 }
         
@@ -243,10 +381,11 @@ def main():
     mock_started = mock_server.start_servers()
     
     if mock_started:
-        print("\nモックデータの説明:")
-        print("   - 車両: 3台が直線移動（往復）")
-        print("   - 歩行者: 4人が円形軌道で移動")
-        print("   - 位置は時間経過で自動的に変化します")
+        print("\n交差点シミュレーションの説明:")
+        print("   - 車両: 4台（直進・右折・左折）")
+        print("   - 歩行者: 4人（横断歩道・歩道を移動）")
+        print("   - 原点(0,0)は交差点の中心")
+        print("   - リアルな交差点の動きをシミュレーション")
     
     print("\n可視化システムの使用方法:")
     print("   1. ブラウザで以下のURLのいずれかにアクセス:")

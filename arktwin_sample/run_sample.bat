@@ -6,10 +6,8 @@ echo ArkTwin Sample Launcher
 echo =======================
 
 REM JARファイルの確認
-set CENTER_JAR=
-set EDGE_JAR=
-for /r "./" %%f in (arktwin-center.jar) do set CENTER_JAR=%%f
-for /r "./" %%f in (arktwin-edge.jar) do set EDGE_JAR=%%f
+set CENTER_JAR=arktwin-center.jar
+set EDGE_JAR=arktwin-edge.jar
 
 if not exist "%CENTER_JAR%" (
     echo Error: arktwin-center.jar が見つかりません

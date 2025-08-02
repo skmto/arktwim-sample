@@ -120,20 +120,85 @@ class PedestrianSimulator:
         return True
         
     def update_pedestrians(self, dt: float):
-        """歩行者位置更新（テスト用：停止状態）
+        """歩行者位置更新（交差点シミュレーション）
         
-        本来はここで歩行者の移動ロジックを実装するが、
-        近隣検出のテスト用のため、停止状態を維持する。
+        時間経過に応じて歩行者を交差点で移動させる。
+        原点(0,0)を交差点の中心として、横断歩道や歩道を歩行。
         
         Args:
             dt (float): 前回更新からの経過時間（秒）
         """
-        # テスト用：歩行者は移動せず停止状態を維持
-        # 実際のシミュレーションでは、ここで目標地点への移動や
-        # 障害物回避などの歩行ロジックを実装する
+        import math
+        
+        # 各歩行者の移動パターン定義
+        pedestrian_patterns = {
+            "pedestrian-001": {
+                "type": "crosswalk_ew",
+                "start": (-15, -1.5),
+                "end": (15, -1.5),
+                "speed": 1.2,  # 1.2 m/s
+                "cycle_time": 25.0  # 25秒で一方向完了
+            },
+            "pedestrian-002": {
+                "type": "crosswalk_ns",
+                "start": (1.5, -15),
+                "end": (1.5, 15),
+                "speed": 1.0,
+                "cycle_time": 30.0
+            },
+            "pedestrian-003": {
+                "type": "sidewalk_north",
+                "start": (-20, 5),
+                "end": (20, 5),
+                "speed": 1.4,
+                "cycle_time": 28.5
+            },
+            "pedestrian-004": {
+                "type": "crosswalk_ew_return",
+                "start": (15, 1.5),
+                "end": (-15, 1.5),
+                "speed": 1.1,
+                "cycle_time": 27.0
+            }
+        }
+        
         for pedestrian in self.pedestrians.values():
-            # 位置は変更しない（停止状態）
-            pass
+            if pedestrian.id not in pedestrian_patterns:
+                continue
+                
+            pattern = pedestrian_patterns[pedestrian.id]
+            
+            # 周期的な移動（往復）
+            elapsed = self.simulation_time
+            cycle_progress = (elapsed % (pattern["cycle_time"] * 2)) / pattern["cycle_time"]
+            
+            if cycle_progress <= 1.0:
+                # 順方向
+                t = cycle_progress
+                x = pattern["start"][0] + t * (pattern["end"][0] - pattern["start"][0])
+                y = pattern["start"][1] + t * (pattern["end"][1] - pattern["start"][1])
+                direction = math.atan2(pattern["end"][1] - pattern["start"][1],
+                                     pattern["end"][0] - pattern["start"][0])
+                speed_x = pattern["speed"] * math.cos(direction)
+                speed_y = pattern["speed"] * math.sin(direction)
+            else:
+                # 逆方向
+                t = cycle_progress - 1.0
+                x = pattern["end"][0] + t * (pattern["start"][0] - pattern["end"][0])
+                y = pattern["end"][1] + t * (pattern["start"][1] - pattern["end"][1])
+                direction = math.atan2(pattern["start"][1] - pattern["end"][1],
+                                     pattern["start"][0] - pattern["end"][0])
+                speed_x = pattern["speed"] * math.cos(direction)
+                speed_y = pattern["speed"] * math.sin(direction)
+            
+            # 歩行者の位置と向きを更新
+            pedestrian.x = x
+            pedestrian.y = y
+            pedestrian.z = 0.0  # 歩行者の高さ（地面レベル）
+            pedestrian.rotation_z = math.degrees(direction)
+            pedestrian.speed_x = speed_x
+            pedestrian.speed_y = speed_y
+            pedestrian.speed_z = 0.0
                 
     def send_transforms(self):
         """ArkTwinに変換行列を送信

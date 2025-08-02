@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ArkTwin シミュレーション可視化 v2</title>
+    <title>ArkTwin シミュレーション可視化</title>
     <style>
         * {
             margin: 0;
@@ -110,13 +110,6 @@
             height: 8px;
             border-radius: 50%;
             background: currentColor;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
         }
 
         .main-content {
@@ -327,13 +320,12 @@
             }
         }
     </style>
-    <!-- Socket.IO クライアント -->
-    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
 </head>
 <body>
     <div class="header">
-        <h1>🚗 ArkTwin シミュレーション可視化 v2 🚶</h1>
-        <p>車両と歩行者のリアルタイム位置追跡システム (サーバーサイド版)</p>
+        <h1>🚗 ArkTwin シミュレーション可視化 🚶</h1>
+        <p>車両と歩行者のリアルタイム位置追跡システム</p>
+        <p style="font-size: 0.9em; margin-top: 10px; opacity: 0.8;">HTTPサーバー対応版</p>
     </div>
 
     <div class="container">
@@ -345,9 +337,30 @@
                     <button id="disconnectBtn" class="btn" disabled>接続停止</button>
                 </div>
                 
+                <div class="control-group">
+                    <label for="updateInterval">更新間隔:</label>
+                    <select id="updateInterval">
+                        <option value="1000">1秒</option>
+                        <option value="2000" selected>2秒</option>
+                        <option value="5000">5秒</option>
+                    </select>
+                </div>
+                
                 <div id="connectionStatus" class="status-indicator status-disconnected">
                     <div class="status-dot"></div>
                     <span>未接続</span>
+                </div>
+            </div>
+            
+            <div class="control-row">
+                <div class="control-group">
+                    <label for="vehiclePort">車両Edge:</label>
+                    <input type="number" id="vehiclePort" value="2237" min="1" max="65535">
+                </div>
+                
+                <div class="control-group">
+                    <label for="pedestrianPort">歩行者Edge:</label>
+                    <input type="number" id="pedestrianPort" value="2238" min="1" max="65535">
                 </div>
                 
                 <div class="control-group">
@@ -367,9 +380,8 @@
                 <div class="canvas-container">
                     <canvas id="simulationCanvas"></canvas>
                     <div class="canvas-overlay">
-                        <div>🚦 交差点シミュレーション</div>
                         <div>座標系: X=東方向, Y=北方向</div>
-                        <div>スケール: 1px = 1m (原点=交差点中心)</div>
+                        <div>スケール: 1px = 1m</div>
                         <div id="serverInfo" style="font-size: 0.8em; color: #666; margin-top: 5px;"></div>
                     </div>
                 </div>
@@ -377,11 +389,11 @@
                 <div class="legend">
                     <div class="legend-item">
                         <div class="legend-color" style="background: #007bff;"></div>
-                        <span>車両</span>
+                        <span>車両 (車両シミュレーター)</span>
                     </div>
                     <div class="legend-item">
                         <div class="legend-color" style="background: #28a745;"></div>
-                        <span>歩行者</span>
+                        <span>歩行者 (歩行者シミュレーター)</span>
                     </div>
                 </div>
             </div>
@@ -432,10 +444,10 @@
 
     <script>
         /**
-         * ArkTwin シミュレーション可視化システム v2
-         * サーバーサイド API + WebSocket 版
+         * ArkTwin シミュレーション可視化システム
+         * 車両と歩行者の位置をリアルタイムで可視化
          */
-        class ArkTwinVisualizerV2 {
+        class ArkTwinVisualizer {
             constructor() {
                 // キャンバス設定
                 this.canvas = document.getElementById('simulationCanvas');
@@ -446,7 +458,13 @@
                 this.vehicles = new Map();
                 this.pedestrians = new Map();
                 this.isConnected = false;
+                this.updateInterval = null;
                 this.updateCount = 0;
+                
+                // 設定
+                this.vehiclePort = 2237;
+                this.pedestrianPort = 2238;
+                this.refreshRate = 2000; // 2秒間隔
                 
                 // 可視化設定
                 this.scale = 5; // 1メートル = 5ピクセル
@@ -456,21 +474,18 @@
                 // UI要素
                 this.connectBtn = document.getElementById('connectBtn');
                 this.disconnectBtn = document.getElementById('disconnectBtn');
+                this.updateIntervalSelect = document.getElementById('updateInterval');
+                this.vehiclePortInput = document.getElementById('vehiclePort');
+                this.pedestrianPortInput = document.getElementById('pedestrianPort');
                 this.clearBtn = document.getElementById('clearBtn');
                 this.connectionStatus = document.getElementById('connectionStatus');
                 this.errorMessage = document.getElementById('errorMessage');
-                
-                // Socket.IO 接続
-                this.socket = null;
                 
                 // イベントリスナー設定
                 this.setupEventListeners();
                 
                 // 初期描画
                 this.draw();
-                
-                // サーバー情報表示
-                this.updateServerInfo();
             }
             
             /**
@@ -478,7 +493,7 @@
              */
             setupCanvas() {
                 const container = this.canvas.parentElement;
-                this.canvas.width = container.clientWidth - 4;
+                this.canvas.width = container.clientWidth - 4; // ボーダー分を除く
                 this.canvas.height = container.clientHeight - 4;
                 
                 // 高DPI対応
@@ -502,6 +517,22 @@
                 this.disconnectBtn.addEventListener('click', () => this.disconnect());
                 this.clearBtn.addEventListener('click', () => this.clearData());
                 
+                this.updateIntervalSelect.addEventListener('change', (e) => {
+                    this.refreshRate = parseInt(e.target.value);
+                    if (this.isConnected) {
+                        this.disconnect();
+                        setTimeout(() => this.connect(), 100);
+                    }
+                });
+                
+                this.vehiclePortInput.addEventListener('change', (e) => {
+                    this.vehiclePort = parseInt(e.target.value);
+                });
+                
+                this.pedestrianPortInput.addEventListener('change', (e) => {
+                    this.pedestrianPort = parseInt(e.target.value);
+                });
+                
                 // ウィンドウリサイズ対応
                 window.addEventListener('resize', () => {
                     this.setupCanvas();
@@ -510,62 +541,34 @@
             }
             
             /**
-             * サーバー情報更新
-             */
-            updateServerInfo() {
-                const serverInfo = document.getElementById('serverInfo');
-                serverInfo.textContent = `プロキシサーバー: ${window.location.origin}`;
-            }
-            
-            /**
              * 接続開始
              */
             async connect() {
                 try {
                     this.hideError();
-                    this.updateConnectionStatus('connecting', '接続中...');
+                    this.updateConnectionStatus(true, '接続中...');
                     
-                    // Socket.IO 接続
-                    this.socket = io();
+                    // 初期データ取得テスト
+                    await this.fetchAllData();
                     
-                    // WebSocket イベントリスナー
-                    this.socket.on('connect', () => {
-                        console.log('WebSocket接続成功');
-                        this.isConnected = true;
-                        this.connectBtn.disabled = true;
-                        this.disconnectBtn.disabled = false;
-                        this.updateConnectionStatus('connected', '接続中');
-                        
-                        // 監視開始要求
-                        this.socket.emit('start_monitoring');
-                    });
+                    // 定期更新開始
+                    this.updateInterval = setInterval(() => {
+                        this.fetchAllData().catch(err => {
+                            console.error('データ取得エラー:', err);
+                            this.showError('データ取得に失敗しました: ' + err.message);
+                        });
+                    }, this.refreshRate);
                     
-                    this.socket.on('disconnect', () => {
-                        console.log('WebSocket切断');
-                        this.isConnected = false;
-                        this.connectBtn.disabled = false;
-                        this.disconnectBtn.disabled = true;
-                        this.updateConnectionStatus('disconnected', '切断');
-                    });
+                    this.isConnected = true;
+                    this.connectBtn.disabled = true;
+                    this.disconnectBtn.disabled = false;
+                    this.updateConnectionStatus(true, '接続中');
                     
-                    this.socket.on('data_update', (data) => {
-                        this.handleDataUpdate(data);
-                    });
-                    
-                    this.socket.on('status_update', (status) => {
-                        console.log('ステータス更新:', status.message);
-                    });
-                    
-                    this.socket.on('connect_error', (error) => {
-                        console.error('接続エラー:', error);
-                        this.showError('サーバーに接続できません: ' + error.message);
-                        this.updateConnectionStatus('disconnected', '接続失敗');
-                    });
-                    
+                    console.log('ArkTwin可視化システムに接続しました');
                 } catch (error) {
                     console.error('接続エラー:', error);
                     this.showError('接続に失敗しました: ' + error.message);
-                    this.updateConnectionStatus('disconnected', '接続失敗');
+                    this.updateConnectionStatus(false, '接続失敗');
                 }
             }
             
@@ -573,18 +576,17 @@
              * 接続停止
              */
             disconnect() {
-                if (this.socket) {
-                    this.socket.emit('stop_monitoring');
-                    this.socket.disconnect();
-                    this.socket = null;
+                if (this.updateInterval) {
+                    clearInterval(this.updateInterval);
+                    this.updateInterval = null;
                 }
                 
                 this.isConnected = false;
                 this.connectBtn.disabled = false;
                 this.disconnectBtn.disabled = true;
-                this.updateConnectionStatus('disconnected', '未接続');
+                this.updateConnectionStatus(false, '未接続');
                 
-                console.log('サーバーから切断しました');
+                console.log('ArkTwin可視化システムから切断しました');
             }
             
             /**
@@ -599,33 +601,80 @@
             }
             
             /**
-             * データ更新処理
+             * 全データ取得
              */
-            handleDataUpdate(data) {
-                // 車両データ更新
-                this.vehicles.clear();
-                if (data.vehicles) {
-                    data.vehicles.forEach(vehicle => {
-                        this.vehicles.set(vehicle.id, vehicle);
-                    });
-                }
+            async fetchAllData() {
+                const promises = [
+                    this.fetchNeighbors(this.vehiclePort, 'vehicle'),
+                    this.fetchNeighbors(this.pedestrianPort, 'pedestrian')
+                ];
                 
-                // 歩行者データ更新
-                this.pedestrians.clear();
-                if (data.pedestrians) {
-                    data.pedestrians.forEach(pedestrian => {
-                        this.pedestrians.set(pedestrian.id, pedestrian);
-                    });
-                }
-                
-                // 統計更新
-                if (data.stats) {
-                    this.updateCount = data.stats.total_updates || 0;
-                }
-                
-                // UI更新
+                await Promise.all(promises);
+                this.updateCount++;
                 this.draw();
                 this.updateUI();
+            }
+            
+            /**
+             * 近隣情報取得
+             */
+            async fetchNeighbors(port, type) {
+                const url = `http://127.0.0.1:${port}/api/edge/neighbors/_query`;
+                const query = {
+                    timestamp: {
+                        seconds: Math.floor(Date.now() / 1000),
+                        nanos: 0
+                    },
+                    neighborsNumber: 100,
+                    changeDetection: false
+                };
+                
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(query)
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    if (data.neighbors) {
+                        // 近隣情報を処理（他のシミュレーターからのデータ）
+                        Object.entries(data.neighbors).forEach(([agentId, agentData]) => {
+                            if (agentData.transform && agentData.transform.localTranslation) {
+                                const agent = {
+                                    id: agentId,
+                                    x: agentData.transform.localTranslation.x,
+                                    y: agentData.transform.localTranslation.y,
+                                    z: agentData.transform.localTranslation.z || 0,
+                                    kind: agentData.kind || 'unknown',
+                                    status: agentData.status || {},
+                                    lastUpdate: Date.now()
+                                };
+                                
+                                if (agentId.startsWith('vehicle')) {
+                                    this.vehicles.set(agentId, agent);
+                                } else if (agentId.startsWith('pedestrian')) {
+                                    this.pedestrians.set(agentId, agent);
+                                }
+                            }
+                        });
+                    }
+                } catch (error) {
+                    // CORS エラーの場合は詳細な説明を追加
+                    let errorMsg = error.message;
+                    if (error.message.includes('CORS') || error.message.includes('fetch')) {
+                        errorMsg += '\n\nHTTPサーバー環境では CORS ポリシーにより直接APIアクセスが制限される場合があります。';
+                        errorMsg += '\ntest_visualization.py のモックサーバーを使用することをお勧めします。';
+                    }
+                    throw new Error(`${type}データ取得失敗 (ポート${port}): ${errorMsg}`);
+                }
             }
             
             /**
@@ -637,9 +686,6 @@
                 
                 // 背景グリッド描画
                 this.drawGrid();
-                
-                // 交差点道路描画
-                this.drawIntersection();
                 
                 // 座標軸描画
                 this.drawAxes();
@@ -674,91 +720,6 @@
                     this.ctx.moveTo(0, y);
                     this.ctx.lineTo(this.canvas.width, y);
                     this.ctx.stroke();
-                }
-            }
-            
-            /**
-             * 交差点道路描画
-             */
-            drawIntersection() {
-                const roadWidth = 6 * this.scale; // 道路幅6メートル
-                const halfWidth = roadWidth / 2;
-                
-                // 道路面（アスファルト色）
-                this.ctx.fillStyle = '#555';
-                
-                // 東西道路
-                this.ctx.fillRect(0, this.centerY - halfWidth, this.canvas.width, roadWidth);
-                
-                // 南北道路
-                this.ctx.fillRect(this.centerX - halfWidth, 0, roadWidth, this.canvas.height);
-                
-                // 道路の境界線（白線）
-                this.ctx.strokeStyle = '#fff';
-                this.ctx.lineWidth = 1;
-                
-                // 東西道路の境界線
-                this.ctx.beginPath();
-                this.ctx.moveTo(0, this.centerY - halfWidth);
-                this.ctx.lineTo(this.canvas.width, this.centerY - halfWidth);
-                this.ctx.moveTo(0, this.centerY + halfWidth);
-                this.ctx.lineTo(this.canvas.width, this.centerY + halfWidth);
-                this.ctx.stroke();
-                
-                // 南北道路の境界線
-                this.ctx.beginPath();
-                this.ctx.moveTo(this.centerX - halfWidth, 0);
-                this.ctx.lineTo(this.centerX - halfWidth, this.canvas.height);
-                this.ctx.moveTo(this.centerX + halfWidth, 0);
-                this.ctx.lineTo(this.centerX + halfWidth, this.canvas.height);
-                this.ctx.stroke();
-                
-                // 中央線（破線）
-                this.ctx.strokeStyle = '#ffff80';
-                this.ctx.lineWidth = 1;
-                this.ctx.setLineDash([5, 5]);
-                
-                // 東西中央線
-                this.ctx.beginPath();
-                this.ctx.moveTo(0, this.centerY);
-                this.ctx.lineTo(this.centerX - halfWidth, this.centerY);
-                this.ctx.moveTo(this.centerX + halfWidth, this.centerY);
-                this.ctx.lineTo(this.canvas.width, this.centerY);
-                this.ctx.stroke();
-                
-                // 南北中央線
-                this.ctx.beginPath();
-                this.ctx.moveTo(this.centerX, 0);
-                this.ctx.lineTo(this.centerX, this.centerY - halfWidth);
-                this.ctx.moveTo(this.centerX, this.centerY + halfWidth);
-                this.ctx.lineTo(this.centerX, this.canvas.height);
-                this.ctx.stroke();
-                
-                // 横断歩道
-                this.ctx.fillStyle = '#fff';
-                this.ctx.setLineDash([]); // 実線に戻す
-                
-                const crosswalkWidth = 2 * this.scale;
-                const stripeWidth = 0.5 * this.scale;
-                
-                // 東西横断歩道
-                for (let i = 0; i < crosswalkWidth / stripeWidth; i += 2) {
-                    this.ctx.fillRect(
-                        this.centerX - halfWidth - crosswalkWidth,
-                        this.centerY - halfWidth + i * stripeWidth,
-                        crosswalkWidth * 2 + roadWidth,
-                        stripeWidth
-                    );
-                }
-                
-                // 南北横断歩道  
-                for (let i = 0; i < crosswalkWidth / stripeWidth; i += 2) {
-                    this.ctx.fillRect(
-                        this.centerX - halfWidth + i * stripeWidth,
-                        this.centerY - halfWidth - crosswalkWidth,
-                        stripeWidth,
-                        crosswalkWidth * 2 + roadWidth
-                    );
                 }
             }
             
@@ -928,14 +889,8 @@
             /**
              * 接続状態更新
              */
-            updateConnectionStatus(status, message) {
-                const statusClasses = {
-                    'connected': 'status-connected',
-                    'connecting': 'status-connected',
-                    'disconnected': 'status-disconnected'
-                };
-                
-                this.connectionStatus.className = `status-indicator ${statusClasses[status] || 'status-disconnected'}`;
+            updateConnectionStatus(connected, message) {
+                this.connectionStatus.className = `status-indicator ${connected ? 'status-connected' : 'status-disconnected'}`;
                 this.connectionStatus.querySelector('span').textContent = message;
             }
             
@@ -959,7 +914,15 @@
         // 可視化システム初期化
         let visualizer;
         document.addEventListener('DOMContentLoaded', () => {
-            visualizer = new ArkTwinVisualizerV2();
+            visualizer = new ArkTwinVisualizer();
+            
+            // サーバー情報を表示
+            const serverInfo = document.getElementById('serverInfo');
+            if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+                serverInfo.textContent = `HTTPサーバー: ${window.location.origin}`;
+            } else {
+                serverInfo.textContent = 'ローカルファイル (file://)';
+            }
         });
     </script>
 </body>

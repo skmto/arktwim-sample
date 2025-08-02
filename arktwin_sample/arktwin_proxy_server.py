@@ -52,7 +52,7 @@ class ArkTwinProxy:
         self.vehicle_port = 2237
         self.pedestrian_port = 2238
         self.host = "127.0.0.1"
-        self.update_interval = 2.0  # 2秒間隔
+        self.update_interval = 0.2  # 0.2秒間隔
         
         # データストレージ
         self.vehicles = {}
